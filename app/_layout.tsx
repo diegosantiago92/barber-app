@@ -2,12 +2,14 @@ import "@/global.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
-import { Platform } from "react-native";
+import { Platform, Alert } from "react-native";
 import "@/lib/_core/nativewind-pressable";
 import { ThemeProvider } from "@/lib/theme-provider";
+import * as Notifications from "expo-notifications";
+import { setupNotificationCategories, requestNotificationPermissions } from "@/lib/notifications";
 import {
   SafeAreaFrameContext,
   SafeAreaInsetsContext,
@@ -17,6 +19,53 @@ import {
 import type { EdgeInsets, Metrics, Rect } from "react-native-safe-area-context";
 
 import { trpc, createTRPCClient } from "@/lib/trpc";
+
+// Configure notification handler at module level
+if (Platform.OS !== "web") {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
+
+function NotificationSetup() {
+  const responseListener = useRef<Notifications.EventSubscription | null>(null);
+  const cancelMutation = trpc.appointments.cancel.useMutation();
+
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    setupNotificationCategories().catch(console.warn);
+    requestNotificationPermissions().catch(console.warn);
+    responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
+      const actionId = response.actionIdentifier;
+      const data = response.notification.request.content.data as any;
+      const appointmentId = data?.appointmentId;
+      if (!appointmentId) return;
+      if (actionId === "cancel_appointment") {
+        Alert.alert(
+          "Cancelar Agendamento",
+          `Deseja cancelar seu agendamento de ${data.serviceName} às ${data.time}?`,
+          [
+            { text: "Não", style: "cancel" },
+            { text: "Cancelar Horário", style: "destructive", onPress: () => cancelMutation.mutate({ id: appointmentId }) },
+          ]
+        );
+      } else if (actionId === "confirm") {
+        Alert.alert("Confirmado!", `Seu agendamento de ${data.serviceName} às ${data.time} está confirmado. Até logo!`);
+      }
+    });
+    return () => {
+      if (responseListener.current) responseListener.current.remove();
+    };
+  }, []);
+
+  return null;
+}
 import { initManusRuntime, subscribeSafeAreaInsets } from "@/lib/_core/manus-runtime";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -85,8 +134,10 @@ export default function RootLayout() {
           {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
           {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
           {/* in order for ios apps tab switching to work properly, use presentation: "fullScreenModal" for login page, whenever you decide to use presentation: "modal*/}
+          <NotificationSetup />
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="login" />
             <Stack.Screen name="oauth/callback" />
           </Stack>
           <StatusBar style="auto" />

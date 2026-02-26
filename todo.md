@@ -1,0 +1,23 @@
+# Project TODO
+
+- [x] Configurar paleta de cores (theme.config.js)
+- [x] Definir schema do banco de dados (serviços, horários de funcionamento, agendamentos)
+- [x] Criar queries do banco de dados (server/db.ts)
+- [x] Criar rotas tRPC da API (server/routers.ts)
+- [x] Configurar mapeamento de ícones (icon-symbol.tsx)
+- [x] Implementar tela de Login
+- [x] Implementar tela Home (cliente)
+- [x] Implementar tela de Agendamento (seleção de serviço, data, horário)
+- [x] Implementar tela Meus Agendamentos (próximos + histórico)
+- [x] Implementar Painel Admin (visão do dia, estatísticas)
+- [x] Implementar Gerenciar Horários (admin)
+- [x] Implementar Gerenciar Serviços (admin)
+- [x] Implementar tela de Perfil
+- [x] Implementar navegação condicional (admin vs cliente)
+- [x] Bloqueio de agendamento retroativo (datas passadas)
+- [x] Sistema de notificação push local (lembrete 1h antes)
+- [x] Ações na notificação (confirmar/cancelar)
+- [x] Notificação ao owner quando novo agendamento é criado
+- [x] Gerar logo do app
+- [x] Rodar migrações do banco de dados
+- [x] Testes e validação (13 testes passando)
