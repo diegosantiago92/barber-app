@@ -8,6 +8,7 @@ import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useState, useEffect } from "react";
 import * as Haptics from "expo-haptics";
+import { useBarbershop } from "@/lib/barbershop-context";
 
 const DAYS = [
   { id: 0, label: "Domingo", short: "Dom" },
@@ -39,13 +40,20 @@ const defaultConfig = (dow: number): DayConfig => ({
 
 export default function ScheduleScreen() {
   const colors = useColors();
+  const { activeBarbershopId } = useBarbershop();
   const [configs, setConfigs] = useState<DayConfig[]>(DAYS.map((d) => defaultConfig(d.id)));
   const [saving, setSaving] = useState<number | null>(null);
   const [blockedInput, setBlockedInput] = useState("");
   const [blockedReason, setBlockedReason] = useState("");
 
-  const { data: workingHours, refetch: refetchWH } = trpc.workingHours.list.useQuery();
-  const { data: blockedDates, refetch: refetchBD } = trpc.blockedDates.list.useQuery();
+  const { data: workingHours, refetch: refetchWH } = trpc.workingHours.list.useQuery(
+    { barbershopId: activeBarbershopId ?? 0 },
+    { enabled: !!activeBarbershopId }
+  );
+  const { data: blockedDates, refetch: refetchBD } = trpc.blockedDates.list.useQuery(
+    { barbershopId: activeBarbershopId ?? 0 },
+    { enabled: !!activeBarbershopId }
+  );
   const upsertMutation = trpc.workingHours.upsert.useMutation();
   const addBlockedMutation = trpc.blockedDates.add.useMutation({ onSuccess: () => { refetchBD(); setBlockedInput(""); setBlockedReason(""); } });
   const removeBlockedMutation = trpc.blockedDates.remove.useMutation({ onSuccess: () => refetchBD() });
@@ -67,11 +75,12 @@ export default function ScheduleScreen() {
   };
 
   const saveDay = async (dow: number) => {
+    if (!activeBarbershopId) return;
     const cfg = configs.find((c) => c.dayOfWeek === dow);
     if (!cfg) return;
     setSaving(dow);
     try {
-      await upsertMutation.mutateAsync(cfg);
+      await upsertMutation.mutateAsync({ ...cfg, barbershopId: activeBarbershopId });
       await refetchWH();
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert("Salvo", "Horário atualizado com sucesso!");
@@ -83,12 +92,13 @@ export default function ScheduleScreen() {
   };
 
   const handleAddBlocked = async () => {
+    if (!activeBarbershopId) return;
     if (!blockedInput.match(/^\d{4}-\d{2}-\d{2}$/)) {
       Alert.alert("Formato inválido", "Use o formato AAAA-MM-DD (ex: 2025-12-25)");
       return;
     }
     try {
-      await addBlockedMutation.mutateAsync({ date: blockedInput, reason: blockedReason.trim() || undefined });
+      await addBlockedMutation.mutateAsync({ barbershopId: activeBarbershopId, date: blockedInput, reason: blockedReason.trim() || undefined });
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
       Alert.alert("Erro", e.message || "Não foi possível adicionar");
@@ -96,11 +106,23 @@ export default function ScheduleScreen() {
   };
 
   const handleRemoveBlocked = (id: number, date: string) => {
+    if (!activeBarbershopId) return;
     Alert.alert("Remover Bloqueio", `Deseja remover o bloqueio do dia ${date}?`, [
       { text: "Cancelar", style: "cancel" },
-      { text: "Remover", style: "destructive", onPress: () => removeBlockedMutation.mutate({ id }) },
+      { text: "Remover", style: "destructive", onPress: () => removeBlockedMutation.mutate({ id, barbershopId: activeBarbershopId }) },
     ]);
   };
+
+  if (!activeBarbershopId) {
+    return (
+      <ScreenContainer>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 12 }}>
+          <IconSymbol name="calendar" size={48} color={colors.muted} />
+          <Text style={{ fontSize: 16, color: colors.muted, textAlign: "center" }}>Selecione uma barbearia para gerenciar os horários</Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
 
   return (
     <ScreenContainer>
@@ -110,7 +132,6 @@ export default function ScheduleScreen() {
           <Text style={{ fontSize: 13, color: colors.muted, marginTop: 4 }}>Configure os horários disponíveis para agendamento</Text>
         </View>
 
-        {/* Days */}
         {DAYS.map((day) => {
           const cfg = configs.find((c) => c.dayOfWeek === day.id) ?? defaultConfig(day.id);
           return (
@@ -118,51 +139,51 @@ export default function ScheduleScreen() {
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: cfg.isOpen ? 14 : 0 }}>
                 <View>
                   <Text style={{ fontSize: 15, fontWeight: "700", color: colors.foreground }}>{day.label}</Text>
-                  {!cfg.isOpen && <Text style={{ fontSize: 12, color: colors.muted, marginTop: 2 }}>Fechado</Text>}
+                  {!cfg.isOpen && <Text style={{ fontSize: 12, color: colors.muted }}>Fechado</Text>}
                 </View>
                 <Switch
                   value={cfg.isOpen}
                   onValueChange={(v) => updateConfig(day.id, { isOpen: v })}
-                  trackColor={{ false: colors.border, true: colors.primary + "80" }}
+                  trackColor={{ false: colors.border, true: colors.primary + "60" }}
                   thumbColor={cfg.isOpen ? colors.primary : colors.muted}
                 />
               </View>
 
               {cfg.isOpen && (
-                <View style={{ gap: 12 }}>
-                  <View style={{ flexDirection: "row", gap: 10 }}>
+                <>
+                  <View style={{ flexDirection: "row", gap: 12, marginBottom: 12 }}>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 12, color: colors.muted, marginBottom: 4 }}>Abertura</Text>
+                      <Text style={{ fontSize: 12, color: colors.muted, marginBottom: 6, fontWeight: "600" }}>Abertura</Text>
                       <TextInput
                         value={cfg.startTime}
                         onChangeText={(v) => updateConfig(day.id, { startTime: v })}
                         placeholder="09:00"
                         placeholderTextColor={colors.muted}
-                        style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: colors.foreground, fontSize: 15, textAlign: "center" }}
+                        style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: colors.foreground, fontSize: 15 }}
                       />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 12, color: colors.muted, marginBottom: 4 }}>Fechamento</Text>
+                      <Text style={{ fontSize: 12, color: colors.muted, marginBottom: 6, fontWeight: "600" }}>Fechamento</Text>
                       <TextInput
                         value={cfg.endTime}
                         onChangeText={(v) => updateConfig(day.id, { endTime: v })}
                         placeholder="18:00"
                         placeholderTextColor={colors.muted}
-                        style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: colors.foreground, fontSize: 15, textAlign: "center" }}
+                        style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: colors.foreground, fontSize: 15 }}
                       />
                     </View>
                   </View>
 
-                  <View>
-                    <Text style={{ fontSize: 12, color: colors.muted, marginBottom: 6 }}>Intervalo entre atendimentos</Text>
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={{ fontSize: 12, color: colors.muted, marginBottom: 8, fontWeight: "600" }}>Intervalo entre horários</Text>
                     <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                      {INTERVALS.map((i) => (
+                      {INTERVALS.map((interval) => (
                         <TouchableOpacity
-                          key={i}
-                          onPress={() => updateConfig(day.id, { intervalMinutes: i })}
-                          style={{ paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10, borderWidth: 1.5, borderColor: cfg.intervalMinutes === i ? colors.primary : colors.border, backgroundColor: cfg.intervalMinutes === i ? colors.primary + "15" : colors.background }}
+                          key={interval}
+                          onPress={() => updateConfig(day.id, { intervalMinutes: interval })}
+                          style={{ paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10, backgroundColor: cfg.intervalMinutes === interval ? colors.primary : colors.background, borderWidth: 1, borderColor: cfg.intervalMinutes === interval ? colors.primary : colors.border }}
                         >
-                          <Text style={{ fontSize: 13, fontWeight: "600", color: cfg.intervalMinutes === i ? colors.primary : colors.muted }}>{i} min</Text>
+                          <Text style={{ fontSize: 13, fontWeight: "600", color: cfg.intervalMinutes === interval ? "#fff" : colors.foreground }}>{interval}min</Text>
                         </TouchableOpacity>
                       ))}
                     </View>
@@ -173,22 +194,18 @@ export default function ScheduleScreen() {
                     disabled={saving === day.id}
                     style={{ backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 10, alignItems: "center", opacity: saving === day.id ? 0.7 : 1 }}
                   >
-                    {saving === day.id ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>Salvar {day.short}</Text>
-                    )}
+                    {saving === day.id ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>Salvar {day.short}</Text>}
                   </TouchableOpacity>
-                </View>
+                </>
               )}
 
               {!cfg.isOpen && (
                 <TouchableOpacity
                   onPress={() => saveDay(day.id)}
                   disabled={saving === day.id}
-                  style={{ marginTop: 8, backgroundColor: colors.border, borderRadius: 12, paddingVertical: 8, alignItems: "center" }}
+                  style={{ marginTop: 10, backgroundColor: colors.border, borderRadius: 12, paddingVertical: 8, alignItems: "center", opacity: saving === day.id ? 0.7 : 1 }}
                 >
-                  <Text style={{ color: colors.muted, fontSize: 12, fontWeight: "600" }}>Salvar como fechado</Text>
+                  {saving === day.id ? <ActivityIndicator color={colors.muted} size="small" /> : <Text style={{ color: colors.muted, fontSize: 13, fontWeight: "600" }}>Salvar como Fechado</Text>}
                 </TouchableOpacity>
               )}
             </View>
@@ -196,46 +213,48 @@ export default function ScheduleScreen() {
         })}
 
         {/* Blocked Dates */}
-        <View style={{ marginHorizontal: 16, marginTop: 8 }}>
-          <Text style={{ fontSize: 18, fontWeight: "700", color: colors.foreground, marginBottom: 12 }}>Dias de Folga / Feriados</Text>
-          <View style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: colors.border, gap: 10 }}>
+        <View style={{ paddingHorizontal: 16, marginTop: 8 }}>
+          <Text style={{ fontSize: 18, fontWeight: "700", color: colors.foreground, marginBottom: 12 }}>Datas Bloqueadas</Text>
+          <Text style={{ fontSize: 13, color: colors.muted, marginBottom: 14 }}>Bloqueie feriados ou dias de folga</Text>
+
+          <View style={{ flexDirection: "row", gap: 10, marginBottom: 10 }}>
             <TextInput
               value={blockedInput}
               onChangeText={setBlockedInput}
-              placeholder="Data (AAAA-MM-DD)"
+              placeholder="AAAA-MM-DD"
               placeholderTextColor={colors.muted}
-              style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: colors.foreground, fontSize: 15 }}
+              style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: colors.foreground, fontSize: 14 }}
             />
             <TextInput
               value={blockedReason}
               onChangeText={setBlockedReason}
               placeholder="Motivo (opcional)"
               placeholderTextColor={colors.muted}
-              style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: colors.foreground, fontSize: 15 }}
+              style={{ flex: 1.5, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: colors.foreground, fontSize: 14 }}
             />
-            <TouchableOpacity
-              onPress={handleAddBlocked}
-              disabled={addBlockedMutation.isPending}
-              style={{ backgroundColor: colors.warning, borderRadius: 12, paddingVertical: 11, alignItems: "center" }}
-            >
-              <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>Bloquear Data</Text>
-            </TouchableOpacity>
           </View>
+          <TouchableOpacity
+            onPress={handleAddBlocked}
+            disabled={addBlockedMutation.isPending}
+            style={{ backgroundColor: colors.warning, borderRadius: 12, paddingVertical: 11, alignItems: "center", marginBottom: 16, opacity: addBlockedMutation.isPending ? 0.7 : 1 }}
+          >
+            {addBlockedMutation.isPending ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>Bloquear Data</Text>}
+          </TouchableOpacity>
 
-          {blockedDates && blockedDates.length > 0 && (
-            <View style={{ marginTop: 12, gap: 8 }}>
-              {blockedDates.map((b) => (
-                <View key={b.id} style={{ backgroundColor: colors.surface, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.border, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                  <View>
-                    <Text style={{ fontSize: 14, fontWeight: "600", color: colors.foreground }}>{b.date}</Text>
-                    {b.reason && <Text style={{ fontSize: 12, color: colors.muted }}>{b.reason}</Text>}
-                  </View>
-                  <TouchableOpacity onPress={() => handleRemoveBlocked(b.id, b.date)} style={{ padding: 6, backgroundColor: colors.error + "15", borderRadius: 8 }}>
-                    <IconSymbol name="trash.fill" size={14} color={colors.error} />
-                  </TouchableOpacity>
+          {(blockedDates ?? []).length === 0 ? (
+            <Text style={{ fontSize: 13, color: colors.muted, textAlign: "center", paddingVertical: 16 }}>Nenhuma data bloqueada</Text>
+          ) : (
+            (blockedDates ?? []).map((bd) => (
+              <View key={bd.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: colors.surface, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: colors.warning + "40" }}>
+                <View>
+                  <Text style={{ fontSize: 14, fontWeight: "700", color: colors.foreground }}>{bd.date}</Text>
+                  {bd.reason && <Text style={{ fontSize: 12, color: colors.muted }}>{bd.reason}</Text>}
                 </View>
-              ))}
-            </View>
+                <TouchableOpacity onPress={() => handleRemoveBlocked(bd.id, bd.date)} style={{ padding: 8, backgroundColor: colors.error + "15", borderRadius: 10 }}>
+                  <IconSymbol name="trash.fill" size={16} color={colors.error} />
+                </TouchableOpacity>
+              </View>
+            ))
           )}
         </View>
       </ScrollView>

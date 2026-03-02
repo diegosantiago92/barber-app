@@ -9,6 +9,8 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useState, useMemo } from "react";
 import * as Haptics from "expo-haptics";
 import { cancelAppointmentReminder } from "@/lib/notifications";
+import { useBarbershop } from "@/lib/barbershop-context";
+import { useRouter } from "expo-router";
 
 function formatDate(dateStr: string) {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -33,10 +35,15 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function AppointmentsScreen() {
   const colors = useColors();
+  const router = useRouter();
+  const { activeBarbershopId } = useBarbershop();
   const [tab, setTab] = useState<"upcoming" | "history">("upcoming");
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: appointments, refetch, isLoading } = trpc.appointments.mine.useQuery();
+  const { data: appointments, refetch, isLoading } = trpc.appointments.mine.useQuery(
+    { barbershopId: activeBarbershopId ?? 0 },
+    { enabled: !!activeBarbershopId }
+  );
   const cancelMutation = trpc.appointments.cancel.useMutation({
     onSuccess: () => refetch(),
   });
@@ -62,6 +69,7 @@ export default function AppointmentsScreen() {
   };
 
   const handleCancel = (id: number) => {
+    if (!activeBarbershopId) return;
     Alert.alert(
       "Cancelar Agendamento",
       "Tem certeza que deseja cancelar este agendamento? O horário ficará disponível para outros clientes.",
@@ -72,7 +80,7 @@ export default function AppointmentsScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              await cancelMutation.mutateAsync({ id });
+              await cancelMutation.mutateAsync({ id, barbershopId: activeBarbershopId });
               await cancelAppointmentReminder(id);
               if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             } catch (e: any) {
@@ -124,11 +132,24 @@ export default function AppointmentsScreen() {
     </View>
   );
 
+  if (!activeBarbershopId) {
+    return (
+      <ScreenContainer>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 12 }}>
+          <IconSymbol name="calendar" size={48} color={colors.muted} />
+          <Text style={{ fontSize: 16, color: colors.muted, textAlign: "center" }}>Selecione uma barbearia para ver seus agendamentos</Text>
+          <TouchableOpacity onPress={() => router.push("/barbershop-select")} style={{ backgroundColor: colors.primary, borderRadius: 14, paddingHorizontal: 24, paddingVertical: 12 }}>
+            <Text style={{ color: "#fff", fontWeight: "700" }}>Escolher Barbearia</Text>
+          </TouchableOpacity>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
   return (
     <ScreenContainer>
       <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
         <Text style={{ fontSize: 22, fontWeight: "800", color: colors.foreground, marginBottom: 12 }}>Meus Agendamentos</Text>
-        {/* Tabs */}
         <View style={{ flexDirection: "row", backgroundColor: colors.surface, borderRadius: 12, padding: 3, borderWidth: 1, borderColor: colors.border }}>
           {(["upcoming", "history"] as const).map((t) => (
             <TouchableOpacity
@@ -159,11 +180,13 @@ export default function AppointmentsScreen() {
             <View style={{ alignItems: "center", justifyContent: "center", paddingTop: 60, gap: 12 }}>
               <IconSymbol name="calendar" size={48} color={colors.muted} />
               <Text style={{ fontSize: 16, fontWeight: "600", color: colors.foreground }}>
-                {tab === "upcoming" ? "Nenhum agendamento futuro" : "Nenhum histórico"}
+                {tab === "upcoming" ? "Nenhum agendamento próximo" : "Nenhum histórico"}
               </Text>
-              <Text style={{ fontSize: 13, color: colors.muted, textAlign: "center" }}>
-                {tab === "upcoming" ? "Agende seu próximo horário na aba Agendar" : "Seus agendamentos anteriores aparecerão aqui"}
-              </Text>
+              {tab === "upcoming" && (
+                <TouchableOpacity onPress={() => router.push("/(tabs)/book")} style={{ backgroundColor: colors.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 }}>
+                  <Text style={{ color: "#fff", fontWeight: "700" }}>Agendar Agora</Text>
+                </TouchableOpacity>
+              )}
             </View>
           }
         />

@@ -48,6 +48,9 @@ const MAPPING = {
   "timer": "timer",
   "arrow.clockwise": "refresh",
   "minus.circle.fill": "remove-circle",
+  "person.fill.badge.plus": "person-add",
+  "building.2.fill": "store",
+  "creditcard.fill": "credit-card",
 } as IconMapping;
 
 export function IconSymbol({

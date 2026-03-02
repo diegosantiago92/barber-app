@@ -60,6 +60,7 @@ export default function ProfileScreen() {
   };
 
   const isAdmin = user?.role === "admin";
+  const isSuperAdmin = user?.role === "superadmin";
 
   const InfoRow = ({ icon, label, value }: { icon: any; label: string; value: string }) => (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
@@ -82,9 +83,9 @@ export default function ProfileScreen() {
             <IconSymbol name="person.fill" size={38} color="#fff" />
           </View>
           <Text style={{ color: "#fff", fontSize: 20, fontWeight: "700" }}>{user?.name || "Usuário"}</Text>
-          {isAdmin && (
+          {(isAdmin || isSuperAdmin) && (
             <View style={{ backgroundColor: "#ffffff30", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 }}>
-              <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>ADMINISTRADOR</Text>
+              <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>{isSuperAdmin ? "SUPER-ADMIN" : "ADMINISTRADOR"}</Text>
             </View>
           )}
         </View>
@@ -162,6 +163,23 @@ export default function ProfileScreen() {
               </Text>
             </View>
           </View>
+
+          {/* Super-Admin Panel */}
+          {isSuperAdmin && (
+            <TouchableOpacity
+              onPress={() => router.push("/super-admin")}
+              style={{ backgroundColor: colors.warning + "15", borderRadius: 16, padding: 16, flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: colors.warning + "30", marginBottom: 12 }}
+            >
+              <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: colors.warning + "20", alignItems: "center", justifyContent: "center" }}>
+                <IconSymbol name="shield.fill" size={18} color={colors.warning} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 15, fontWeight: "700", color: colors.warning }}>Painel Super-Admin</Text>
+                <Text style={{ fontSize: 12, color: colors.muted, marginTop: 2 }}>Gerenciar barbearias e assinaturas</Text>
+              </View>
+              <IconSymbol name="chevron.right" size={16} color={colors.warning} />
+            </TouchableOpacity>
+          )}
 
           {/* Logout */}
           <TouchableOpacity

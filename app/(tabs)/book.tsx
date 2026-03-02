@@ -10,6 +10,7 @@ import { useState, useMemo } from "react";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { scheduleAppointmentReminder } from "@/lib/notifications";
+import { useBarbershop } from "@/lib/barbershop-context";
 
 const DAYS_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const MONTHS_PT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
@@ -33,21 +34,30 @@ function generateDays(count = 30) {
 export default function BookScreen() {
   const colors = useColors();
   const router = useRouter();
+  const { activeBarbershopId } = useBarbershop();
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [selectedService, setSelectedService] = useState<any>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
-  const { data: services, isLoading: servicesLoading } = trpc.services.list.useQuery();
-  const { data: slots, isLoading: slotsLoading } = trpc.appointments.availableSlots.useQuery(
-    { date: selectedDate ? toDateStr(selectedDate) : "" },
-    { enabled: !!selectedDate }
+  const { data: services, isLoading: servicesLoading } = trpc.services.listPublic.useQuery(
+    { barbershopId: activeBarbershopId ?? 0 },
+    { enabled: !!activeBarbershopId }
   );
-  const { data: blockedDates } = trpc.blockedDates.list.useQuery();
-  const { data: workingHours } = trpc.workingHours.list.useQuery();
+  const { data: slots, isLoading: slotsLoading } = trpc.appointments.availableSlots.useQuery(
+    { barbershopId: activeBarbershopId ?? 0, date: selectedDate ? toDateStr(selectedDate) : "" },
+    { enabled: !!selectedDate && !!activeBarbershopId }
+  );
+  const { data: blockedDates } = trpc.blockedDates.list.useQuery(
+    { barbershopId: activeBarbershopId ?? 0 },
+    { enabled: !!activeBarbershopId }
+  );
+  const { data: workingHours } = trpc.workingHours.list.useQuery(
+    { barbershopId: activeBarbershopId ?? 0 },
+    { enabled: !!activeBarbershopId }
+  );
 
   const createMutation = trpc.appointments.create.useMutation();
-
   const days = useMemo(() => generateDays(30), []);
 
   const isDateBlocked = (d: Date) => {
@@ -60,14 +70,14 @@ export default function BookScreen() {
   };
 
   const handleConfirm = async () => {
-    if (!selectedService || !selectedDate || !selectedTime) return;
+    if (!selectedService || !selectedDate || !selectedTime || !activeBarbershopId) return;
     try {
       const result = await createMutation.mutateAsync({
+        barbershopId: activeBarbershopId,
         serviceId: selectedService.id,
         date: toDateStr(selectedDate),
         time: selectedTime,
       });
-      // Schedule local notification
       try {
         await scheduleAppointmentReminder({
           appointmentId: result.id,
@@ -75,12 +85,8 @@ export default function BookScreen() {
           date: toDateStr(selectedDate),
           time: selectedTime,
         });
-      } catch (e) {
-        console.warn("Failed to schedule notification:", e);
-      }
-      if (Platform.OS !== "web") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
+      } catch (e) { console.warn("Failed to schedule notification:", e); }
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setStep(4);
     } catch (e: any) {
       Alert.alert("Erro", e.message || "Não foi possível realizar o agendamento");
@@ -94,20 +100,12 @@ export default function BookScreen() {
     setSelectedTime(null);
   };
 
-  // Step indicators
   const StepIndicator = () => (
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 16, gap: 0 }}>
       {[1, 2, 3].map((s, i) => (
         <View key={s} style={{ flexDirection: "row", alignItems: "center" }}>
-          <View style={{
-            width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center",
-            backgroundColor: step > s ? colors.success : step === s ? colors.primary : colors.border,
-          }}>
-            {step > s ? (
-              <IconSymbol name="checkmark" size={14} color="#fff" />
-            ) : (
-              <Text style={{ color: step === s ? "#fff" : colors.muted, fontSize: 12, fontWeight: "700" }}>{s}</Text>
-            )}
+          <View style={{ width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: step > s ? colors.success : step === s ? colors.primary : colors.border }}>
+            {step > s ? <IconSymbol name="checkmark" size={14} color="#fff" /> : <Text style={{ color: step === s ? "#fff" : colors.muted, fontSize: 12, fontWeight: "700" }}>{s}</Text>}
           </View>
           {i < 2 && <View style={{ width: 40, height: 2, backgroundColor: step > s + 1 ? colors.success : step > s ? colors.primary : colors.border }} />}
         </View>
@@ -115,7 +113,20 @@ export default function BookScreen() {
     </View>
   );
 
-  // Step 4: Success
+  if (!activeBarbershopId) {
+    return (
+      <ScreenContainer>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 12 }}>
+          <IconSymbol name="calendar" size={48} color={colors.muted} />
+          <Text style={{ fontSize: 16, color: colors.muted, textAlign: "center" }}>Selecione uma barbearia para agendar</Text>
+          <TouchableOpacity onPress={() => router.push("/barbershop-select")} style={{ backgroundColor: colors.primary, borderRadius: 14, paddingHorizontal: 24, paddingVertical: 12 }}>
+            <Text style={{ color: "#fff", fontWeight: "700" }}>Escolher Barbearia</Text>
+          </TouchableOpacity>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
   if (step === 4) {
     return (
       <ScreenContainer className="items-center justify-center px-8">
@@ -135,13 +146,10 @@ export default function BookScreen() {
               {selectedDate?.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })} às {selectedTime}
             </Text>
           </View>
-          <TouchableOpacity
-            onPress={reset}
-            style={{ backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32, marginTop: 8 }}
-          >
+          <TouchableOpacity onPress={reset} style={{ backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32, marginTop: 8 }}>
             <Text style={{ color: "#fff", fontSize: 15, fontWeight: "700" }}>Novo Agendamento</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push("/appointments" as any)}>
+          <TouchableOpacity onPress={() => router.push("/(tabs)/appointments")}>
             <Text style={{ color: colors.primary, fontSize: 14, fontWeight: "600" }}>Ver meus agendamentos</Text>
           </TouchableOpacity>
         </View>
@@ -151,7 +159,6 @@ export default function BookScreen() {
 
   return (
     <ScreenContainer>
-      {/* Header */}
       <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 }}>
         <Text style={{ fontSize: 22, fontWeight: "800", color: colors.foreground }}>Agendar Horário</Text>
         <StepIndicator />
@@ -226,7 +233,7 @@ export default function BookScreen() {
                     key={toDateStr(d)}
                     disabled={blocked}
                     onPress={() => { setSelectedDate(d); setSelectedTime(null); if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-                    style={{ width: 64, paddingVertical: 12, borderRadius: 14, alignItems: "center", gap: 4, borderWidth: 1.5, borderColor: isSelected ? colors.primary : blocked ? colors.border : colors.border, backgroundColor: isSelected ? colors.primary : blocked ? colors.border + "50" : colors.surface, opacity: blocked ? 0.4 : 1 }}
+                    style={{ width: 64, paddingVertical: 12, borderRadius: 14, alignItems: "center", gap: 4, borderWidth: 1.5, borderColor: isSelected ? colors.primary : colors.border, backgroundColor: isSelected ? colors.primary : blocked ? colors.border + "50" : colors.surface, opacity: blocked ? 0.4 : 1 }}
                   >
                     <Text style={{ fontSize: 11, fontWeight: "600", color: isSelected ? "#fff" : colors.muted }}>{DAYS_PT[d.getDay()]}</Text>
                     <Text style={{ fontSize: 20, fontWeight: "800", color: isSelected ? "#fff" : colors.foreground }}>{d.getDate()}</Text>
@@ -236,10 +243,7 @@ export default function BookScreen() {
               })}
             </ScrollView>
             {selectedDate && (
-              <TouchableOpacity
-                onPress={() => setStep(3)}
-                style={{ backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 14, alignItems: "center" }}
-              >
+              <TouchableOpacity onPress={() => setStep(3)} style={{ backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 14, alignItems: "center" }}>
                 <Text style={{ color: "#fff", fontSize: 15, fontWeight: "700" }}>Continuar</Text>
               </TouchableOpacity>
             )}
@@ -255,71 +259,47 @@ export default function BookScreen() {
               </TouchableOpacity>
               <Text style={{ fontSize: 16, fontWeight: "700", color: colors.foreground }}>Escolha o horário</Text>
             </View>
-            <View style={{ backgroundColor: colors.surface, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: colors.border, gap: 4 }}>
-              <Text style={{ fontSize: 13, color: colors.muted }}>Data selecionada</Text>
-              <Text style={{ fontSize: 15, fontWeight: "600", color: colors.foreground, textTransform: "capitalize" }}>
+            <View style={{ backgroundColor: colors.surface, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: colors.border }}>
+              <Text style={{ fontSize: 13, color: colors.muted, marginBottom: 2 }}>Serviço</Text>
+              <Text style={{ fontSize: 14, fontWeight: "600", color: colors.foreground }}>{selectedService?.name}</Text>
+              <Text style={{ fontSize: 13, color: colors.muted, marginTop: 8, marginBottom: 2 }}>Data</Text>
+              <Text style={{ fontSize: 14, fontWeight: "600", color: colors.foreground, textTransform: "capitalize" }}>
                 {selectedDate?.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}
               </Text>
             </View>
             {slotsLoading ? (
               <ActivityIndicator color={colors.primary} />
             ) : slots && slots.length > 0 ? (
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                {slots.map((t) => (
-                  <TouchableOpacity
-                    key={t}
-                    onPress={() => { setSelectedTime(t); if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-                    style={{ paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12, borderWidth: 1.5, borderColor: selectedTime === t ? colors.primary : colors.border, backgroundColor: selectedTime === t ? colors.primary : colors.surface }}
-                  >
-                    <Text style={{ fontSize: 15, fontWeight: "700", color: selectedTime === t ? "#fff" : colors.foreground }}>{t}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            ) : (
-              <View style={{ backgroundColor: colors.surface, borderRadius: 14, padding: 24, alignItems: "center", gap: 8, borderWidth: 1, borderColor: colors.border }}>
-                <IconSymbol name="xmark.circle.fill" size={32} color={colors.muted} />
-                <Text style={{ color: colors.muted, fontSize: 14, textAlign: "center" }}>Nenhum horário disponível para esta data</Text>
-              </View>
-            )}
-            {selectedTime && (
-              <View style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: colors.border, gap: 8 }}>
-                <Text style={{ fontSize: 13, fontWeight: "600", color: colors.muted }}>RESUMO DO AGENDAMENTO</Text>
-                <View style={{ gap: 6 }}>
-                  <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                    <Text style={{ color: colors.muted, fontSize: 13 }}>Serviço</Text>
-                    <Text style={{ color: colors.foreground, fontSize: 13, fontWeight: "600" }}>{selectedService?.name}</Text>
-                  </View>
-                  <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                    <Text style={{ color: colors.muted, fontSize: 13 }}>Data</Text>
-                    <Text style={{ color: colors.foreground, fontSize: 13, fontWeight: "600" }}>
-                      {selectedDate?.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })}
-                    </Text>
-                  </View>
-                  <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                    <Text style={{ color: colors.muted, fontSize: 13 }}>Horário</Text>
-                    <Text style={{ color: colors.foreground, fontSize: 13, fontWeight: "600" }}>{selectedTime}</Text>
-                  </View>
-                  {selectedService?.priceDisplay && (
-                    <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                      <Text style={{ color: colors.muted, fontSize: 13 }}>Valor</Text>
-                      <Text style={{ color: colors.foreground, fontSize: 13, fontWeight: "600" }}>{selectedService.priceDisplay}</Text>
-                    </View>
-                  )}
+              <>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                  {slots.map((slot) => (
+                    <TouchableOpacity
+                      key={slot}
+                      onPress={() => { setSelectedTime(slot); if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                      style={{ paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12, borderWidth: 1.5, borderColor: selectedTime === slot ? colors.primary : colors.border, backgroundColor: selectedTime === slot ? colors.primary : colors.surface }}
+                    >
+                      <Text style={{ fontSize: 15, fontWeight: "700", color: selectedTime === slot ? "#fff" : colors.foreground }}>{slot}</Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
-              </View>
-            )}
-            {selectedTime && (
-              <TouchableOpacity
-                onPress={handleConfirm}
-                disabled={createMutation.isPending}
-                style={{ backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16, alignItems: "center", opacity: createMutation.isPending ? 0.7 : 1 }}
-              >
-                {createMutation.isPending ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>Confirmar Agendamento</Text>
+                {selectedTime && (
+                  <TouchableOpacity
+                    onPress={handleConfirm}
+                    disabled={createMutation.isPending}
+                    style={{ backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 15, alignItems: "center", marginTop: 8, opacity: createMutation.isPending ? 0.7 : 1 }}
+                  >
+                    {createMutation.isPending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>Confirmar Agendamento</Text>}
+                  </TouchableOpacity>
                 )}
-              </TouchableOpacity>
+              </>
+            ) : (
+              <View style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 24, alignItems: "center", gap: 8, borderWidth: 1, borderColor: colors.border }}>
+                <IconSymbol name="clock.fill" size={32} color={colors.muted} />
+                <Text style={{ color: colors.muted, fontSize: 14, textAlign: "center" }}>Nenhum horário disponível para esta data</Text>
+                <TouchableOpacity onPress={() => { setSelectedDate(null); setStep(2); }}>
+                  <Text style={{ color: colors.primary, fontSize: 14, fontWeight: "600" }}>Escolher outra data</Text>
+                </TouchableOpacity>
+              </View>
             )}
           </View>
         )}

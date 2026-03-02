@@ -19,6 +19,7 @@ import {
 import type { EdgeInsets, Metrics, Rect } from "react-native-safe-area-context";
 
 import { trpc, createTRPCClient } from "@/lib/trpc";
+import { BarbershopProvider } from "@/lib/barbershop-context";
 
 // Configure notification handler at module level
 if (Platform.OS !== "web") {
@@ -36,6 +37,7 @@ if (Platform.OS !== "web") {
 function NotificationSetup() {
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
   const cancelMutation = trpc.appointments.cancel.useMutation();
+  const activeBarbershopId = 0; // placeholder - cancel from notification uses stored id
 
   useEffect(() => {
     if (Platform.OS === "web") return;
@@ -52,7 +54,7 @@ function NotificationSetup() {
           `Deseja cancelar seu agendamento de ${data.serviceName} às ${data.time}?`,
           [
             { text: "Não", style: "cancel" },
-            { text: "Cancelar Horário", style: "destructive", onPress: () => cancelMutation.mutate({ id: appointmentId }) },
+            { text: "Cancelar Horário", style: "destructive", onPress: () => cancelMutation.mutate({ id: appointmentId, barbershopId: data?.barbershopId ?? 0 }) },
           ]
         );
       } else if (actionId === "confirm") {
@@ -134,13 +136,17 @@ export default function RootLayout() {
           {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
           {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
           {/* in order for ios apps tab switching to work properly, use presentation: "fullScreenModal" for login page, whenever you decide to use presentation: "modal*/}
+          <BarbershopProvider>
           <NotificationSetup />
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="login" />
             <Stack.Screen name="oauth/callback" />
+            <Stack.Screen name="barbershop-select" />
+            <Stack.Screen name="super-admin" />
           </Stack>
           <StatusBar style="auto" />
+          </BarbershopProvider>
         </QueryClientProvider>
       </trpc.Provider>
     </GestureHandlerRootView>

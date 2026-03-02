@@ -8,6 +8,7 @@ import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useState } from "react";
 import * as Haptics from "expo-haptics";
+import { useBarbershop } from "@/lib/barbershop-context";
 
 type ServiceForm = {
   name: string;
@@ -20,21 +21,20 @@ const emptyForm: ServiceForm = { name: "", description: "", durationMinutes: "30
 
 export default function ServicesScreen() {
   const colors = useColors();
+  const { activeBarbershopId } = useBarbershop();
   const [modalVisible, setModalVisible] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<ServiceForm>(emptyForm);
 
-  const { data: services, refetch, isLoading } = trpc.services.listAll.useQuery();
+  const { data: services, refetch, isLoading } = trpc.services.list.useQuery(
+    { barbershopId: activeBarbershopId ?? 0 },
+    { enabled: !!activeBarbershopId }
+  );
   const createMutation = trpc.services.create.useMutation({ onSuccess: () => { refetch(); setModalVisible(false); setForm(emptyForm); } });
   const updateMutation = trpc.services.update.useMutation({ onSuccess: () => { refetch(); setModalVisible(false); setEditingId(null); setForm(emptyForm); } });
   const deleteMutation = trpc.services.delete.useMutation({ onSuccess: () => refetch() });
 
-  const openCreate = () => {
-    setEditingId(null);
-    setForm(emptyForm);
-    setModalVisible(true);
-  };
-
+  const openCreate = () => { setEditingId(null); setForm(emptyForm); setModalVisible(true); };
   const openEdit = (s: any) => {
     setEditingId(s.id);
     setForm({ name: s.name, description: s.description || "", durationMinutes: String(s.durationMinutes), priceDisplay: s.priceDisplay || "" });
@@ -42,52 +42,52 @@ export default function ServicesScreen() {
   };
 
   const handleSave = async () => {
+    if (!activeBarbershopId) return;
     if (!form.name.trim()) { Alert.alert("Erro", "Nome do serviço é obrigatório"); return; }
     const dur = parseInt(form.durationMinutes, 10);
     if (isNaN(dur) || dur < 5) { Alert.alert("Erro", "Duração inválida (mínimo 5 minutos)"); return; }
     try {
       if (editingId) {
-        await updateMutation.mutateAsync({ id: editingId, name: form.name.trim(), description: form.description.trim() || undefined, durationMinutes: dur, priceDisplay: form.priceDisplay.trim() || undefined });
+        await updateMutation.mutateAsync({ id: editingId, barbershopId: activeBarbershopId, name: form.name.trim(), description: form.description.trim() || undefined, durationMinutes: dur, priceDisplay: form.priceDisplay.trim() || undefined });
       } else {
-        await createMutation.mutateAsync({ name: form.name.trim(), description: form.description.trim() || undefined, durationMinutes: dur, priceDisplay: form.priceDisplay.trim() || undefined });
+        await createMutation.mutateAsync({ barbershopId: activeBarbershopId, name: form.name.trim(), description: form.description.trim() || undefined, durationMinutes: dur, priceDisplay: form.priceDisplay.trim() || undefined });
       }
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (e: any) {
-      Alert.alert("Erro", e.message || "Não foi possível salvar");
-    }
+    } catch (e: any) { Alert.alert("Erro", e.message || "Não foi possível salvar"); }
   };
 
   const handleDelete = (id: number, name: string) => {
-    Alert.alert("Remover Serviço", `Deseja remover "${name}"? Ele não aparecerá mais para agendamentos.`, [
+    if (!activeBarbershopId) return;
+    Alert.alert("Remover Serviço", `Deseja remover "${name}"?`, [
       { text: "Cancelar", style: "cancel" },
-      { text: "Remover", style: "destructive", onPress: () => deleteMutation.mutate({ id }) },
+      { text: "Remover", style: "destructive", onPress: () => deleteMutation.mutate({ id, barbershopId: activeBarbershopId }) },
     ]);
   };
 
   const InputField = ({ label, value, onChangeText, placeholder, keyboardType = "default" as any, multiline = false }: any) => (
     <View style={{ gap: 6, marginBottom: 14 }}>
       <Text style={{ fontSize: 13, fontWeight: "600", color: colors.muted }}>{label}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={colors.muted}
-        keyboardType={keyboardType}
-        multiline={multiline}
-        numberOfLines={multiline ? 3 : 1}
-        style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: colors.foreground, fontSize: 15, minHeight: multiline ? 80 : undefined, textAlignVertical: multiline ? "top" : "center" }}
-      />
+      <TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.muted} keyboardType={keyboardType} multiline={multiline} numberOfLines={multiline ? 3 : 1}
+        style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: colors.foreground, fontSize: 15, minHeight: multiline ? 80 : undefined, textAlignVertical: multiline ? "top" : "center" }} />
     </View>
   );
+
+  if (!activeBarbershopId) {
+    return (
+      <ScreenContainer>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 12 }}>
+          <IconSymbol name="scissors" size={48} color={colors.muted} />
+          <Text style={{ fontSize: 16, color: colors.muted, textAlign: "center" }}>Selecione uma barbearia para gerenciar os serviços</Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
 
   return (
     <ScreenContainer>
       <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
         <Text style={{ fontSize: 22, fontWeight: "800", color: colors.foreground }}>Serviços</Text>
-        <TouchableOpacity
-          onPress={openCreate}
-          style={{ backgroundColor: colors.primary, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 6 }}
-        >
+        <TouchableOpacity onPress={openCreate} style={{ backgroundColor: colors.primary, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 6 }}>
           <IconSymbol name="plus.circle.fill" size={16} color="#fff" />
           <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>Novo</Text>
         </TouchableOpacity>
@@ -98,10 +98,7 @@ export default function ServicesScreen() {
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
-        <FlatList
-          data={services}
-          keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+        <FlatList data={services} keyExtractor={(item) => item.id.toString()} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
           ListEmptyComponent={
             <View style={{ alignItems: "center", paddingTop: 60, gap: 12 }}>
               <IconSymbol name="scissors" size={48} color={colors.muted} />
@@ -149,7 +146,6 @@ export default function ServicesScreen() {
         />
       )}
 
-      {/* Modal */}
       <Modal visible={modalVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setModalVisible(false)}>
         <View style={{ flex: 1, backgroundColor: colors.background }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border }}>
@@ -163,16 +159,9 @@ export default function ServicesScreen() {
             <InputField label="Descrição" value={form.description} onChangeText={(v: string) => setForm({ ...form, description: v })} placeholder="Descrição opcional" multiline />
             <InputField label="Duração (minutos) *" value={form.durationMinutes} onChangeText={(v: string) => setForm({ ...form, durationMinutes: v })} placeholder="30" keyboardType="numeric" />
             <InputField label="Preço (informativo)" value={form.priceDisplay} onChangeText={(v: string) => setForm({ ...form, priceDisplay: v })} placeholder="Ex: R$ 35,00" />
-            <TouchableOpacity
-              onPress={handleSave}
-              disabled={createMutation.isPending || updateMutation.isPending}
-              style={{ backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 15, alignItems: "center", marginTop: 8, opacity: (createMutation.isPending || updateMutation.isPending) ? 0.7 : 1 }}
-            >
-              {(createMutation.isPending || updateMutation.isPending) ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>Salvar Serviço</Text>
-              )}
+            <TouchableOpacity onPress={handleSave} disabled={createMutation.isPending || updateMutation.isPending}
+              style={{ backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 15, alignItems: "center", marginTop: 8, opacity: (createMutation.isPending || updateMutation.isPending) ? 0.7 : 1 }}>
+              {(createMutation.isPending || updateMutation.isPending) ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>Salvar Serviço</Text>}
             </TouchableOpacity>
           </ScrollView>
         </View>
