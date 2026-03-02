@@ -52,3 +52,8 @@
 - [x] Criar railway.json com configuração de build e start
 - [x] Atualizar script de build para gerar frontend + backend juntos
 - [x] Checkpoint e entrega
+
+## Correções v2.3
+- [x] Corrigir tema dark mode no deploy web (cor estranha no Railway)
+- [x] Corrigir botão bloquear barbearia no Super-Admin
+- [x] Adicionar opção de excluir barbearia no Super-Admin

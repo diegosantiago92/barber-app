@@ -455,3 +455,15 @@ export async function getAllBarbershopsWithStats() {
 
   return results;
 }
+
+export async function deleteBarbershopById(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Delete in order to respect foreign key constraints
+  await db.delete(appointments).where(eq(appointments.barbershopId, id));
+  await db.delete(services).where(eq(services.barbershopId, id));
+  await db.delete(workingHours).where(eq(workingHours.barbershopId, id));
+  await db.delete(blockedDates).where(eq(blockedDates.barbershopId, id));
+  await db.delete(barbershopMembers).where(eq(barbershopMembers.barbershopId, id));
+  await db.delete(barbershops).where(eq(barbershops.id, id));
+}

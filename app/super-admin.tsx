@@ -36,8 +36,23 @@ export default function SuperAdminScreen() {
   const [newAdminEmail, setNewAdminEmail] = useState("");
 
   const { data: shops, refetch, isLoading } = trpc.superAdmin.listBarbershops.useQuery();
-  const updateStatusMutation = trpc.superAdmin.updateSubscriptionStatus.useMutation({ onSuccess: () => refetch() });
-  const addAdminMutation = trpc.superAdmin.addAdminToShop.useMutation({ onSuccess: () => { setNewAdminEmail(""); Alert.alert("Sucesso", "Admin adicionado com sucesso!"); } });
+  const updateStatusMutation = trpc.superAdmin.updateSubscriptionStatus.useMutation({
+    onSuccess: () => refetch(),
+    onError: (e) => Alert.alert("Erro", e.message || "Não foi possível alterar o status"),
+  });
+  const deleteMutation = trpc.superAdmin.deleteBarbershop.useMutation({
+    onSuccess: () => {
+      refetch();
+      Alert.alert("Excluído", "Barbearia excluída com sucesso.");
+    },
+    onError: (e) => Alert.alert("Erro", e.message || "Não foi possível excluir a barbearia"),
+  });
+  const addAdminMutation = trpc.superAdmin.addAdminToShop.useMutation({
+    onSuccess: () => {
+      setNewAdminEmail("");
+      Alert.alert("Sucesso", "Admin adicionado com sucesso!");
+    },
+  });
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -45,14 +60,38 @@ export default function SuperAdminScreen() {
     setRefreshing(false);
   };
 
-  const handleUpdateStatus = (shopId: number, status: SubscriptionStatus) => {
+  const handleUpdateStatus = (shopId: number, status: SubscriptionStatus, shopName: string) => {
     const labels: Record<SubscriptionStatus, string> = { trial: "Trial", active: "Ativo", blocked: "Bloqueado" };
+    const messages: Record<SubscriptionStatus, string> = {
+      trial: `Colocar "${shopName}" em período de trial?`,
+      active: `Ativar acesso de "${shopName}"?`,
+      blocked: `Bloquear acesso de "${shopName}"? Os administradores não conseguirão mais acessar o app.`,
+    };
     Alert.alert(
-      "Alterar Status",
-      `Deseja alterar o status para "${labels[status]}"?`,
+      `${labels[status]} — ${shopName}`,
+      messages[status],
       [
         { text: "Cancelar", style: "cancel" },
-        { text: "Confirmar", onPress: () => updateStatusMutation.mutate({ shopId, status }) },
+        {
+          text: status === "blocked" ? "Bloquear" : "Confirmar",
+          style: status === "blocked" ? "destructive" : "default",
+          onPress: () => updateStatusMutation.mutate({ shopId, status }),
+        },
+      ]
+    );
+  };
+
+  const handleDelete = (shopId: number, shopName: string) => {
+    Alert.alert(
+      "Excluir Barbearia",
+      `Tem certeza que deseja excluir "${shopName}"?\n\nEsta ação é IRREVERSÍVEL e irá apagar todos os dados: agendamentos, serviços, horários e membros.`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Excluir Permanentemente",
+          style: "destructive",
+          onPress: () => deleteMutation.mutate({ shopId }),
+        },
       ]
     );
   };
@@ -164,30 +203,85 @@ export default function SuperAdminScreen() {
 
               {/* Status Actions */}
               <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
-                {(["trial", "active", "blocked"] as SubscriptionStatus[]).filter((s) => s !== item.subscriptionStatus).map((status) => {
-                  const colorMap: Record<SubscriptionStatus, string> = { trial: colors.warning, active: colors.success, blocked: colors.error };
-                  const labelMap: Record<SubscriptionStatus, string> = { trial: "Trial", active: "Ativar", blocked: "Bloquear" };
-                  return (
-                    <TouchableOpacity
-                      key={status}
-                      onPress={() => handleUpdateStatus(item.id, status)}
-                      disabled={updateStatusMutation.isPending}
-                      style={{ flex: 1, backgroundColor: colorMap[status] + "20", borderRadius: 10, paddingVertical: 8, alignItems: "center", borderWidth: 1, borderColor: colorMap[status] + "40" }}
-                    >
-                      <Text style={{ fontSize: 12, fontWeight: "700", color: colorMap[status] }}>{labelMap[status]}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                {(["trial", "active", "blocked"] as SubscriptionStatus[])
+                  .filter((s) => s !== item.subscriptionStatus)
+                  .map((status) => {
+                    const colorMap: Record<SubscriptionStatus, string> = {
+                      trial: colors.warning,
+                      active: colors.success,
+                      blocked: colors.error,
+                    };
+                    const labelMap: Record<SubscriptionStatus, string> = {
+                      trial: "Trial",
+                      active: "Ativar",
+                      blocked: "Bloquear",
+                    };
+                    const isPending = updateStatusMutation.isPending;
+                    return (
+                      <TouchableOpacity
+                        key={status}
+                        onPress={() => handleUpdateStatus(item.id, status, item.name)}
+                        disabled={isPending}
+                        style={{
+                          flex: 1,
+                          backgroundColor: colorMap[status] + "20",
+                          borderRadius: 10,
+                          paddingVertical: 8,
+                          alignItems: "center",
+                          borderWidth: 1,
+                          borderColor: colorMap[status] + "60",
+                          opacity: isPending ? 0.6 : 1,
+                        }}
+                      >
+                        {isPending ? (
+                          <ActivityIndicator size="small" color={colorMap[status]} />
+                        ) : (
+                          <Text style={{ fontSize: 12, fontWeight: "700", color: colorMap[status] }}>{labelMap[status]}</Text>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
               </View>
 
-              {/* Add Admin */}
-              <TouchableOpacity
-                onPress={() => { setSelectedShop(item); setDetailModal(true); setNewAdminEmail(""); }}
-                style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6, justifyContent: "center" }}
-              >
-                <IconSymbol name="person.fill.badge.plus" size={14} color={colors.primary} />
-                <Text style={{ fontSize: 12, fontWeight: "600", color: colors.primary }}>Gerenciar Admins</Text>
-              </TouchableOpacity>
+              {/* Bottom actions row */}
+              <View style={{ flexDirection: "row", gap: 6 }}>
+                <TouchableOpacity
+                  onPress={() => { setSelectedShop(item); setDetailModal(true); setNewAdminEmail(""); }}
+                  style={{
+                    flex: 1,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 6,
+                    paddingVertical: 8,
+                    justifyContent: "center",
+                    backgroundColor: colors.primary + "15",
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: colors.primary + "30",
+                  }}
+                >
+                  <IconSymbol name="person.fill.badge.plus" size={14} color={colors.primary} />
+                  <Text style={{ fontSize: 12, fontWeight: "600", color: colors.primary }}>Gerenciar Admins</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => handleDelete(item.id, item.name)}
+                  disabled={deleteMutation.isPending}
+                  style={{
+                    paddingVertical: 8,
+                    paddingHorizontal: 14,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    backgroundColor: colors.error + "15",
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: colors.error + "40",
+                    opacity: deleteMutation.isPending ? 0.6 : 1,
+                  }}
+                >
+                  <IconSymbol name="trash" size={16} color={colors.error} />
+                </TouchableOpacity>
+              </View>
             </View>
           )}
         />

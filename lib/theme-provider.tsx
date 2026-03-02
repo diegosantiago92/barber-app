@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { Appearance, View, useColorScheme as useSystemColorScheme } from "react-native";
+import { Appearance, View, useColorScheme as useSystemColorScheme, Platform } from "react-native";
 import { colorScheme as nativewindColorScheme, vars } from "nativewind";
 
 import { SchemeColors, type ColorScheme } from "@/constants/theme";
@@ -11,9 +11,22 @@ type ThemeContextValue = {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
+function getInitialScheme(systemScheme: ColorScheme): ColorScheme {
+  // On web, check if the browser/OS has a dark preference via media query
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    const stored = localStorage.getItem("theme") as ColorScheme | null;
+    if (stored === "dark" || stored === "light") return stored;
+    // Check OS preference via media query
+    if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) return "dark";
+    // Default to dark for the app brand
+    return "dark";
+  }
+  return systemScheme ?? "dark";
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const systemScheme = useSystemColorScheme() ?? "light";
-  const [colorScheme, setColorSchemeState] = useState<ColorScheme>(systemScheme);
+  const systemScheme = (useSystemColorScheme() ?? "dark") as ColorScheme;
+  const [colorScheme, setColorSchemeState] = useState<ColorScheme>(() => getInitialScheme(systemScheme));
 
   const applyScheme = useCallback((scheme: ColorScheme) => {
     nativewindColorScheme.set(scheme);
@@ -22,10 +35,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       const root = document.documentElement;
       root.dataset.theme = scheme;
       root.classList.toggle("dark", scheme === "dark");
+      root.classList.toggle("light", scheme === "light");
       const palette = SchemeColors[scheme];
       Object.entries(palette).forEach(([token, value]) => {
         root.style.setProperty(`--color-${token}`, value);
       });
+    }
+    if (Platform.OS === "web" && typeof localStorage !== "undefined") {
+      localStorage.setItem("theme", scheme);
     }
   }, []);
 
@@ -61,7 +78,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }),
     [colorScheme, setColorScheme],
   );
-  console.log(value, themeVariables)
 
   return (
     <ThemeContext.Provider value={value}>

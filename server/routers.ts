@@ -425,6 +425,16 @@ export const appRouter = router({
         await db.addMember({ barbershopId: input.shopId, userId: targetUser.id, role: "admin" });
         return { success: true };
       }),
+
+    deleteBarbershop: protectedProcedure
+      .input(z.object({ shopId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        if (!ctx.user || ctx.user.role !== "superadmin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito ao super-administrador" });
+        }
+        await db.deleteBarbershopById(input.shopId);
+        return { success: true };
+      }),
   }),
 });
 
