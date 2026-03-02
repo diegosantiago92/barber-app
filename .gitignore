@@ -5,9 +5,12 @@ node_modules/
 
 # Expo
 .expo/
-dist/
 web-build/
 expo-env.d.ts
+
+# Build outputs
+dist-server/
+# Note: dist/ (web build) is NOT ignored so Railway can serve it
 
 # Native
 .kotlin/

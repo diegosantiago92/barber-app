@@ -1,38 +1,23 @@
 import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
-import net from "net";
 import path from "path";
 import fs from "fs";
+import { fileURLToPath } from "url";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.listen(port, () => {
-      server.close(() => resolve(true));
-    });
-    server.on("error", () => resolve(false));
-  });
-}
-
-async function findAvailablePort(startPort: number = 3000): Promise<number> {
-  for (let port = startPort; port < startPort + 20; port++) {
-    if (await isPortAvailable(port)) {
-      return port;
-    }
-  }
-  throw new Error(`No available port found starting from ${startPort}`);
-}
+// Resolve __dirname for ESM context
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
   const server = createServer(app);
 
-  // Enable CORS for all routes - reflect the request origin to support credentials
+  // Enable CORS for all routes
   app.use((req, res, next) => {
     const origin = req.headers.origin;
     if (origin) {
@@ -45,7 +30,6 @@ async function startServer() {
     );
     res.header("Access-Control-Allow-Credentials", "true");
 
-    // Handle preflight requests
     if (req.method === "OPTIONS") {
       res.sendStatus(200);
       return;
@@ -70,37 +54,45 @@ async function startServer() {
     }),
   );
 
-  // Serve static web build (Expo export output)
-  const distPath = path.join(process.cwd(), "dist");
-  if (fs.existsSync(distPath)) {
-    app.use(express.static(distPath));
-    // SPA fallback: serve index.html for all non-API routes
+  // Serve static web build (Expo export output goes to dist/)
+  // Server bundle goes to dist-server/, web assets go to dist/
+  // In production: process.cwd() = /app, web assets at /app/dist
+  const webBuildCandidates = [
+    path.join(process.cwd(), "dist"),           // /app/dist (Railway production)
+    path.join(__dirname, "..", "dist"),          // relative to dist-server/
+    path.join(__dirname, "dist"),               // fallback
+  ];
+
+  const webBuildPath = webBuildCandidates.find(
+    (p) => fs.existsSync(p) && fs.existsSync(path.join(p, "index.html"))
+  ) ?? null;
+
+  if (webBuildPath) {
+    console.log(`[web] Serving static files from: ${webBuildPath}`);
+    app.use(express.static(webBuildPath));
+
+    // SPA fallback: serve HTML files for known routes, index.html for unknown
     app.get("*", (req, res) => {
-      const filePath = path.join(distPath, req.path);
-      // Check if there's an exact HTML file for this route
+      const filePath = path.join(webBuildPath, req.path);
       if (fs.existsSync(filePath + ".html")) {
         res.sendFile(filePath + ".html");
       } else if (fs.existsSync(path.join(filePath, "index.html"))) {
         res.sendFile(path.join(filePath, "index.html"));
       } else {
-        res.sendFile(path.join(distPath, "index.html"));
+        res.sendFile(path.join(webBuildPath, "index.html"));
       }
     });
   } else {
+    console.warn("[web] Frontend build not found. Run pnpm build:web to generate it.");
     app.get("/", (_req, res) => {
-      res.json({ message: "BarberPro API running. Frontend build not found — run pnpm build:web first." });
+      res.json({ message: "BarberPro API is running. Frontend not built yet." });
     });
   }
 
-  const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
+  const port = parseInt(process.env.PORT || "3000");
 
-  if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
-  }
-
-  server.listen(port, () => {
-    console.log(`[api] server listening on port ${port}`);
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`[api] BarberPro server listening on port ${port}`);
   });
 }
 
