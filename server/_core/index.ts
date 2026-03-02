@@ -2,6 +2,8 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import path from "path";
+import fs from "fs";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
@@ -67,6 +69,28 @@ async function startServer() {
       createContext,
     }),
   );
+
+  // Serve static web build (Expo export output)
+  const distPath = path.join(process.cwd(), "dist");
+  if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    // SPA fallback: serve index.html for all non-API routes
+    app.get("*", (req, res) => {
+      const filePath = path.join(distPath, req.path);
+      // Check if there's an exact HTML file for this route
+      if (fs.existsSync(filePath + ".html")) {
+        res.sendFile(filePath + ".html");
+      } else if (fs.existsSync(path.join(filePath, "index.html"))) {
+        res.sendFile(path.join(filePath, "index.html"));
+      } else {
+        res.sendFile(path.join(distPath, "index.html"));
+      }
+    });
+  } else {
+    app.get("/", (_req, res) => {
+      res.json({ message: "BarberPro API running. Frontend build not found — run pnpm build:web first." });
+    });
+  }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);

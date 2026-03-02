@@ -46,3 +46,9 @@
 - [x] Migração do banco aplicada (7 tabelas criadas)
 - [x] Zero erros de TypeScript
 - [x] 13 testes passando
+
+## Deploy Railway
+- [x] Configurar servidor Express para servir build web estático (dist/)
+- [x] Criar railway.json com configuração de build e start
+- [x] Atualizar script de build para gerar frontend + backend juntos
+- [x] Checkpoint e entrega
